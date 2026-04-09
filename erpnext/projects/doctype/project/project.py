@@ -11,7 +11,9 @@ from frappe.query_builder import Interval
 from frappe.query_builder.functions import Count, CurDate, Date, Sum, UnixTimestamp
 from frappe.utils import add_days, flt, get_datetime, get_link_to_form, get_time, get_url, nowtime, today
 from frappe.utils.user import is_website_user
-
+from frappe.utils import nowdate
+from datetime import date
+from dateutil.relativedelta import relativedelta
 from erpnext import get_default_company
 from erpnext.controllers.queries import get_filters_cond
 from erpnext.controllers.website_list_for_contact import get_customers_suppliers
@@ -377,14 +379,16 @@ def get_timeline_data(doctype: str, name: str) -> dict[int, int]:
 	"""Return timeline for attendance"""
 
 	timesheet_detail = frappe.qb.DocType("Timesheet Detail")
+	one_year_ago = date.fromisoformat(nowdate()) - relativedelta(years=1)
+	date_column = Date(timesheet_detail.from_time)
 
 	return dict(
 		frappe.qb.from_(timesheet_detail)
-		.select(UnixTimestamp(timesheet_detail.from_time), Count("*"))
+		.select(UnixTimestamp(date_column), Count("*"))
 		.where(timesheet_detail.project == name)
-		.where(timesheet_detail.from_time > CurDate() - Interval(years=1))
+		.where(timesheet_detail.from_time > one_year_ago)
 		.where(timesheet_detail.docstatus < 2)
-		.groupby(Date(timesheet_detail.from_time))
+		.groupby(date_column)
 		.run()
 	)
 
@@ -462,7 +466,7 @@ def get_users_for_project(doctype, txt, searchfield, start, page_len, filters):
 		"""select name, concat_ws(' ', first_name, middle_name, last_name)
 		from `tabUser`
 		where enabled=1
-			and name not in ("Guest", "Administrator")
+			and name not in ('Guest', 'Administrator')
 			and ({key} like %(txt)s
 				or full_name like %(txt)s)
 			{fcond} {mcond}
