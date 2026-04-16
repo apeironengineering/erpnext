@@ -650,55 +650,61 @@ def get_income_account(doctype, txt, searchfield, start, page_len, filters):
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_filtered_dimensions(doctype, txt, searchfield, start, page_len, filters, reference_doctype=None):
-	from erpnext.accounts.doctype.accounting_dimension_filter.accounting_dimension_filter import (
-		get_dimension_filter_map,
-	)
+    from erpnext.accounts.doctype.accounting_dimension_filter.accounting_dimension_filter import (
+        get_dimension_filter_map,
+    )
 
-	dimension_filters = get_dimension_filter_map()
-	dimension_filters = dimension_filters.get((filters.get("dimension"), filters.get("account")))
-	query_filters = []
-	or_filters = []
-	fields = ["name"]
+    dimension_filters = get_dimension_filter_map()
+    dimension_filters = dimension_filters.get((filters.get("dimension"), filters.get("account")))
+    query_filters = []
+    or_filters = []
+    fields = ["name"]
 
-	searchfields = frappe.get_meta(doctype).get_search_fields()
+    meta = frappe.get_meta(doctype)
+    searchfields = meta.get_search_fields()
 
-	meta = frappe.get_meta(doctype)
-	if meta.is_tree and meta.has_field("is_group"):
-		query_filters.append(["is_group", "=", 0])
+    if meta.is_tree and meta.has_field("is_group"):
+        query_filters.append(["is_group", "=", 0])
 
-	if meta.has_field("disabled"):
-		query_filters.append(["disabled", "!=", 1])
+    if meta.has_field("disabled"):
+        query_filters.append(["disabled", "!=", 1])
 
-	if meta.has_field("company"):
-		query_filters.append(["company", "=", filters.get("company")])
+    if meta.has_field("company"):
+        query_filters.append(["company", "=", filters.get("company")])
 
-	for field in searchfields:
-		or_filters.append([field, "LIKE", "%%%s%%" % txt])
-		fields.append(field)
+    # Fix: only apply LIKE on text-compatible fields
+    text_field_types = ["Data", "Text", "Small Text", "Link", "Dynamic Link", "Select"]
 
-	if dimension_filters:
-		if dimension_filters["allow_or_restrict"] == "Allow":
-			query_selector = "in"
-		else:
-			query_selector = "not in"
+    for field in searchfields:
+        field_obj = meta.get_field(field)
+        if field_obj and field_obj.fieldtype not in text_field_types:
+            continue  # ← skip is_group and other numeric fields
+        or_filters.append([field, "LIKE", "%%%s%%" % txt])
+        fields.append(field)
 
-		if len(dimension_filters["allowed_dimensions"]) == 1:
-			dimensions = tuple(dimension_filters["allowed_dimensions"] * 2)
-		else:
-			dimensions = tuple(dimension_filters["allowed_dimensions"])
+    if dimension_filters:
+        if dimension_filters["allow_or_restrict"] == "Allow":
+            query_selector = "in"
+        else:
+            query_selector = "not in"
 
-		query_filters.append(["name", query_selector, dimensions])
+        if len(dimension_filters["allowed_dimensions"]) == 1:
+            dimensions = tuple(dimension_filters["allowed_dimensions"] * 2)
+        else:
+            dimensions = tuple(dimension_filters["allowed_dimensions"])
 
-	output = frappe.get_list(
-		doctype,
-		fields=fields,
-		filters=query_filters,
-		or_filters=or_filters,
-		as_list=1,
-		reference_doctype=reference_doctype,
-	)
+        query_filters.append(["name", query_selector, dimensions])
 
-	return [tuple(d) for d in set(output)]
+    output = frappe.get_list(
+        doctype,
+        fields=fields,
+        filters=query_filters,
+        or_filters=or_filters,
+        as_list=1,
+        reference_doctype=reference_doctype,
+    )
+
+    return [tuple(d) for d in set(output)]
 
 
 @frappe.whitelist()
@@ -713,7 +719,6 @@ def get_expense_account(doctype, txt, searchfield, start, page_len, filters):
 	condition = ""
 	if filters.get("company"):
 		condition += "and tabAccount.company = %(company)s"
-
 	return frappe.db.sql(
 		f"""select tabAccount.name from `tabAccount`
 		where (tabAccount.report_type = "Profit and Loss"

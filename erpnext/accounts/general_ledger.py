@@ -820,9 +820,15 @@ def validate_against_pcv(is_opening, posting_date, company):
 			title=_("Invalid Opening Entry"),
 		)
 
-	last_pcv_date = frappe.db.get_value(
-		"Period Closing Voucher", {"docstatus": 1, "company": company}, [{"MAX": "period_end_date"}]
-	)
+	# Fix: use direct SQL instead of get_value with MAX aggregate (PostgreSQL compatibility)
+	result = frappe.db.sql("""
+		SELECT MAX(period_end_date)
+		FROM `tabPeriod Closing Voucher`
+		WHERE docstatus = 1
+		AND company = %(company)s
+	""", {"company": company})
+
+	last_pcv_date = result[0][0] if result else None
 
 	if last_pcv_date and getdate(posting_date) <= getdate(last_pcv_date):
 		message = _("Books have been closed till the period ending on {0}").format(formatdate(last_pcv_date))
