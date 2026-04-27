@@ -863,7 +863,7 @@ def get_sre_reserved_warehouses_for_voucher(
 	sre = frappe.qb.DocType("Stock Reservation Entry")
 	query = (
 		frappe.qb.from_(sre)
-		.select(sre.warehouse)
+		.select(sre.warehouse,sre.creation)
 		.distinct()
 		.where(
 			(sre.docstatus == 1)

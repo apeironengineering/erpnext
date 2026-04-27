@@ -9,8 +9,9 @@ import frappe
 from frappe import _
 from frappe.query_builder import Interval
 from frappe.query_builder.functions import Count, CurDate, UnixTimestamp
+from frappe.types.DF import date
 from frappe.utils import flt
-from frappe.utils.data import get_url_to_list
+from frappe.utils.data import get_url_to_list, relativedelta
 from frappe.utils.nestedset import NestedSet, get_root_of
 
 from erpnext import get_default_currency
@@ -61,28 +62,29 @@ class SalesPerson(NestedSet):
 		company_default_currency = get_default_currency()
 
 		allocated_amount_against_order = flt(
-			frappe.db.get_value(
-				"Sales Team",
-				{"docstatus": 1, "parenttype": "Sales Order", "sales_person": self.sales_person_name},
-				[{"SUM": "allocated_amount"}],
-			)
+			frappe.db.sql(
+				"""SELECT SUM(allocated_amount) FROM `tabSales Team`
+				WHERE docstatus = 1 AND parenttype = 'Sales Order' AND sales_person = %s""",
+				(self.sales_person_name,),
+			)[0][0]
 		)
 
 		allocated_amount_against_invoice = flt(
-			frappe.db.get_value(
-				"Sales Team",
-				{"docstatus": 1, "parenttype": "Sales Invoice", "sales_person": self.sales_person_name},
-				[{"SUM": "allocated_amount"}],
-			)
+			frappe.db.sql(
+				"""SELECT SUM(allocated_amount) FROM `tabSales Team`
+				WHERE docstatus = 1 AND parenttype = 'Sales Invoice' AND sales_person = %s""",
+				(self.sales_person_name,),
+			)[0][0]
 		)
 
-		info = {}
-		info["allocated_amount_against_order"] = allocated_amount_against_order
-		info["allocated_amount_against_invoice"] = allocated_amount_against_invoice
-		info["currency"] = company_default_currency
+		info = {
+			"allocated_amount_against_order": allocated_amount_against_order,
+			"allocated_amount_against_invoice": allocated_amount_against_invoice,
+			"currency": company_default_currency,
+		}
 
 		self.set_onload("dashboard_info", info)
-
+ 
 	def on_update(self):
 		super().on_update()
 		self.validate_one_root()
@@ -132,6 +134,7 @@ def get_timeline_data(doctype: str, name: str) -> dict[int, int]:
 	def _fetch_activity(doctype: str, date_field: str):
 		sales_team = frappe.qb.DocType("Sales Team")
 		transaction = frappe.qb.DocType(doctype)
+		one_year_ago = date.today() - relativedelta(years=1)
 
 		return dict(
 			frappe.qb.from_(transaction)
@@ -139,7 +142,7 @@ def get_timeline_data(doctype: str, name: str) -> dict[int, int]:
 			.on(transaction.name == sales_team.parent)
 			.select(UnixTimestamp(transaction[date_field]), Count("*"))
 			.where(sales_team.sales_person == name)
-			.where(transaction[date_field] > CurDate() - Interval(years=1))
+			.where(transaction[date_field] > one_year_ago)
 			.groupby(transaction[date_field])
 			.run()
 		)

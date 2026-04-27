@@ -67,15 +67,16 @@ def get_data(conditions, filters):
 			soi.delivery_date as delivery_date,
 			so.name as sales_order,
 			so.status, so.customer, soi.item_code,
-			DATEDIFF(CURRENT_DATE, soi.delivery_date) as delay_days,
-			IF(so.status in ('Completed','To Bill'), 0, (SELECT delay_days)) as delay,
+			(CURRENT_DATE - soi.delivery_date) as delay_days,
+			CASE WHEN so.status in ('Completed','To Bill') THEN 0
+				ELSE (CURRENT_DATE - soi.delivery_date) END as delay,
 			soi.qty, soi.delivered_qty,
 			(soi.qty - soi.delivered_qty) AS pending_qty,
-			IFNULL(SUM(sii.qty), 0) as billed_qty,
+			COALESCE(SUM(sii.qty), 0) as billed_qty,
 			soi.base_amount as amount,
 			(soi.delivered_qty * soi.base_rate) as delivered_qty_amount,
-			(soi.billed_amt * IFNULL(so.conversion_rate, 1)) as billed_amount,
-			(soi.base_amount - (soi.billed_amt * IFNULL(so.conversion_rate, 1))) as pending_amount,
+			(soi.billed_amt * COALESCE(so.conversion_rate, 1)) as billed_amount,
+			(soi.base_amount - (soi.billed_amt * COALESCE(so.conversion_rate, 1))) as pending_amount,
 			soi.warehouse as warehouse,
 			so.company, soi.name,
 			soi.description as description
@@ -89,7 +90,11 @@ def get_data(conditions, filters):
 			and so.status not in ('Stopped', 'On Hold')
 			and so.docstatus = 1
 			{conditions}
-		GROUP BY soi.name
+		GROUP BY
+			soi.name, so.name, so.transaction_date, soi.delivery_date,
+			so.status, so.customer, soi.item_code, soi.qty, soi.delivered_qty,
+			soi.base_amount, soi.base_rate, soi.billed_amt, so.conversion_rate,
+			soi.warehouse, so.company, soi.description
 		ORDER BY so.transaction_date ASC, soi.item_code ASC
 	""",
 		filters,
@@ -107,33 +112,26 @@ def get_so_elapsed_time(data):
 	if data:
 		sales_orders = [x.sales_order for x in data]
 
-		so = qb.DocType("Sales Order")
-		soi = qb.DocType("Sales Order Item")
-		dn = qb.DocType("Delivery Note")
-		dni = qb.DocType("Delivery Note Item")
-
-		to_seconds = CustomFunction("TO_SECONDS", ["date"])
-
-		query = (
-			qb.from_(so)
-			.inner_join(soi)
-			.on(soi.parent == so.name)
-			.left_join(dni)
-			.on(dni.so_detail == soi.name)
-			.left_join(dn)
-			.on(dni.parent == dn.name)
-			.select(
-				so.name.as_("sales_order"),
-				soi.item_code.as_("so_item_code"),
-				(to_seconds(Max(dn.posting_date)) - to_seconds(so.transaction_date)).as_("elapsed_seconds"),
-			)
-			.where((so.name.isin(sales_orders)) & (dn.docstatus == 1))
-			.orderby(so.name, soi.name)
-			.groupby(soi.name)
+		elapsed_time_rows = frappe.db.sql(
+			"""
+			SELECT
+				so.name as sales_order,
+				soi.item_code as so_item_code,
+				EXTRACT(EPOCH FROM ((MAX(dn.posting_date) - so.transaction_date) * INTERVAL '1 day')) as elapsed_seconds
+			FROM `tabSales Order` so
+			INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+			LEFT JOIN `tabDelivery Note Item` dni ON dni.so_detail = soi.name
+			LEFT JOIN `tabDelivery Note` dn ON dni.parent = dn.name
+			WHERE so.name IN %(sales_orders)s
+				AND dn.docstatus = 1
+			GROUP BY so.name, soi.name, soi.item_code, so.transaction_date
+			ORDER BY so.name, soi.name
+			""",
+			{"sales_orders": tuple(sales_orders)},
+			as_dict=True,
 		)
-		dn_elapsed_time = query.run(as_dict=True)
 
-		for e in dn_elapsed_time:
+		for e in elapsed_time_rows:
 			key = (e.sales_order, e.so_item_code)
 			so_elapsed_time[key] = e.elapsed_seconds
 

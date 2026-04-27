@@ -402,42 +402,31 @@ def make_closing_entry_from_opening(opening_entry):
 
 
 def build_invoice_query(invoice_doctype, user, pos_profile, start, end):
-	InvoiceDocType = DocType(invoice_doctype)
-	query = (
-		frappe.qb.from_(InvoiceDocType)
-		.select(
-			InvoiceDocType.name,
-			InvoiceDocType.customer,
-			InvoiceDocType.posting_date,
-			InvoiceDocType.grand_total,
-			InvoiceDocType.net_total,
-			InvoiceDocType.total_qty,
-			InvoiceDocType.total_taxes_and_charges,
-			InvoiceDocType.change_amount,
-			InvoiceDocType.account_for_change_amount,
-			InvoiceDocType.is_return,
-			InvoiceDocType.return_against,
-			fn.Timestamp(InvoiceDocType.posting_date, InvoiceDocType.posting_time).as_("timestamp"),
-			ConstantColumn(invoice_doctype).as_("doctype"),
-		)
-		.where(
-			(InvoiceDocType.owner == user)
-			& (InvoiceDocType.docstatus == 1)
-			& (InvoiceDocType.is_pos == 1)
-			& (InvoiceDocType.pos_profile == pos_profile)
-			& (
-				(fn.Timestamp(InvoiceDocType.posting_date, InvoiceDocType.posting_time) >= start)
-				& (fn.Timestamp(InvoiceDocType.posting_date, InvoiceDocType.posting_time) <= end)
-			)
-		)
-	)
+	table = f"tab{invoice_doctype}"
 
+	extra_where = ""
 	if invoice_doctype == "POS Invoice":
-		query = query.where(fn.IfNull(InvoiceDocType.consolidated_invoice, "").eq(""))
+		extra_where = "AND COALESCE(consolidated_invoice, '') = ''"
 	else:
-		query = query.where(
-			(InvoiceDocType.is_created_using_pos == 1)
-			& fn.IfNull(InvoiceDocType.pos_closing_entry, "").eq("")
-		)
+		extra_where = "AND is_created_using_pos = 1 AND COALESCE(pos_closing_entry, '') = ''"
 
-	return query
+	return frappe.db.sql(
+		f"""
+		SELECT
+			name, customer, posting_date, grand_total, net_total, total_qty,
+			total_taxes_and_charges, change_amount, account_for_change_amount,
+			is_return, return_against,
+			(posting_date::text || ' ' || posting_time::text)::timestamp AS timestamp,
+			'{invoice_doctype}' AS doctype
+		FROM `{table}`
+		WHERE owner = %s
+			AND docstatus = 1
+			AND is_pos = 1
+			AND pos_profile = %s
+			AND (posting_date::text || ' ' || posting_time::text)::timestamp >= %s
+			AND (posting_date::text || ' ' || posting_time::text)::timestamp <= %s
+			{extra_where}
+		""",
+		(user, pos_profile, start, end),
+		as_dict=1,
+	)

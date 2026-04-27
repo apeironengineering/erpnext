@@ -29,15 +29,16 @@ def execute(filters=None):
 
 
 def get_sales_details(doctype):
-	cond = """sum(so.base_net_total) as 'total_order_considered',
-			max(so.posting_date) as 'last_order_date',
-			DATEDIFF(CURRENT_DATE, max(so.posting_date)) as 'days_since_last_order' """
 	if doctype == "Sales Order":
-		cond = """sum(if(so.status = "Stopped",
-				so.base_net_total * so.per_delivered/100,
-				so.base_net_total)) as 'total_order_considered',
-			max(so.transaction_date) as 'last_order_date',
-			DATEDIFF(CURRENT_DATE, max(so.transaction_date)) as 'days_since_last_order'"""
+		cond = """sum(CASE WHEN so.status = 'Stopped'
+				THEN so.base_net_total * so.per_delivered / 100
+				ELSE so.base_net_total END) as total_order_considered,
+			max(so.transaction_date) as last_order_date,
+			(CURRENT_DATE - max(so.transaction_date)) as days_since_last_order"""
+	else:
+		cond = """sum(so.base_net_total) as total_order_considered,
+			max(so.posting_date) as last_order_date,
+			(CURRENT_DATE - max(so.posting_date)) as days_since_last_order"""
 
 	return frappe.db.sql(
 		f"""select
@@ -45,15 +46,15 @@ def get_sales_details(doctype):
 			cust.customer_name,
 			cust.territory,
 			cust.customer_group,
-			count(distinct(so.name)) as 'num_of_order',
-			sum(base_net_total) as 'total_order_value', {cond}
+			count(distinct so.name) as num_of_order,
+			sum(so.base_net_total) as total_order_value,
+			{cond}
 		from `tabCustomer` cust, `tab{doctype}` so
 		where cust.name = so.customer and so.docstatus = 1
-		group by cust.name
-		order by 'days_since_last_order' desc """,
+		group by cust.name, cust.customer_name, cust.territory, cust.customer_group
+		order by days_since_last_order desc""",
 		as_list=1,
 	)
-
 
 def get_last_sales_amt(customer, doctype):
 	cond = "posting_date"

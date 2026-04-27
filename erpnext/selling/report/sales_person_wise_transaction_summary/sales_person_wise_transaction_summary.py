@@ -159,21 +159,21 @@ def get_entries(filters):
 			dt.name, dt.customer, dt.territory, dt.{} as posting_date, dt_item.item_code,
 			st.sales_person, st.allocated_percentage, dt_item.warehouse,
 		CASE
-			WHEN dt.status = "Closed" THEN dt_item.{} * dt_item.conversion_factor
+			WHEN dt.status = 'Closed' THEN dt_item.{} * dt_item.conversion_factor
 			ELSE dt_item.stock_qty
 		END as stock_qty,
 		CASE
-			WHEN dt.status = "Closed" THEN (dt_item.base_net_rate * dt_item.{} * dt_item.conversion_factor)
+			WHEN dt.status = 'Closed' THEN (dt_item.base_net_rate * dt_item.{} * dt_item.conversion_factor)
 			ELSE dt_item.base_net_amount
 		END as base_net_amount,
 		CASE
-			WHEN dt.status = "Closed" THEN ((dt_item.base_net_rate * dt_item.{} * dt_item.conversion_factor) * st.allocated_percentage/100)
+			WHEN dt.status = 'Closed' THEN ((dt_item.base_net_rate * dt_item.{} * dt_item.conversion_factor) * st.allocated_percentage/100)
 			ELSE dt_item.base_net_amount * st.allocated_percentage/100
 		END as contribution_amt
 		FROM
 			`tab{}` dt, `tab{} Item` dt_item, `tabSales Team` st
 		WHERE
-			st.parent = dt.name and dt.name = dt_item.parent and st.parenttype = {}
+			st.parent = dt.name and dt.name = dt_item.parent and st.parenttype = %s
 			and dt.docstatus = 1 {} order by st.sales_person, dt.name desc
 		""".format(
 			date_field,
@@ -182,7 +182,6 @@ def get_entries(filters):
 			qty_field,
 			filters["doc_type"],
 			filters["doc_type"],
-			"%s",
 			conditions,
 		),
 		tuple([filters["doc_type"], *values]),

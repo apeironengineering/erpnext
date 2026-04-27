@@ -16,7 +16,7 @@ def get_columns(filters, trans):
 	period_cols, period_select = period_wise_columns_query(filters, trans)
 	# get conditions for grouping filter cond
 	group_by_cols = group_wise_column(filters.get("group_by"))
-
+          
 	columns = (
 		based_on_details["based_on_cols"]
 		+ period_cols
@@ -85,6 +85,22 @@ def get_data(filters, conditions):
 	year_start_date, year_end_date = frappe.get_cached_value(
 		"Fiscal Year", filters.get("fiscal_year"), ["year_start_date", "year_end_date"]
 	)
+	NON_AGGREGATED_COLS = [
+	"t1.customer_name",
+	"t1.supplier_name",
+	"t1.territory",
+	"t1.project",
+	"t2.project",
+	"t2.item_name",
+	"t2.item_group",
+	"t4.default_currency",
+	]
+	def _build_group_by(base_group_by, query_details):
+		group_by_clause = base_group_by
+		for col in NON_AGGREGATED_COLS:
+			if col in query_details and col not in group_by_clause:
+				group_by_clause += f", {col}"
+		return group_by_clause
 
 	if filters.get("group_by"):
 		sel_col = ""
@@ -120,7 +136,7 @@ def get_data(filters, conditions):
 				"%s",
 				conditions.get("addl_tables_relational_cond"),
 				cond,
-				conditions["group_by"],
+				_build_group_by(conditions["group_by"], query_details),
 			),
 			(filters.get("company"), year_start_date, year_end_date),
 			as_list=1,
@@ -163,6 +179,7 @@ def get_data(filters, conditions):
 					""" select t4.default_currency AS currency , {} , {} from `tab{}` t1, `tab{} Item` t2 {}
 							where t2.parent = t1.name and t1.company = {} and {} between {} and {}
 							and t1.docstatus = 1 and {} = {} and {} = {} {} {}
+							group by t4.default_currency, {}
 						""".format(
 						sel_col,
 						conditions["period_wise_select"],
@@ -179,11 +196,11 @@ def get_data(filters, conditions):
 						"%s",
 						conditions.get("addl_tables_relational_cond"),
 						cond,
+						sel_col,
 					),
 					(filters.get("company"), year_start_date, year_end_date, row[i][0], data1[d][0]),
 					as_list=1,
 				)
-
 				des[ind] = row[i][0]
 				des[ind - 1] = row1[0][0]
 
@@ -211,7 +228,7 @@ def get_data(filters, conditions):
 				"%s",
 				cond,
 				conditions.get("addl_tables_relational_cond", ""),
-				conditions["group_by"],
+				_build_group_by(conditions["group_by"], query_details),
 			),
 			(filters.get("company"), year_start_date, year_end_date),
 			as_list=1,
@@ -219,6 +236,7 @@ def get_data(filters, conditions):
 
 		total_row = calculate_total_row(data, conditions["columns"])
 		data.append(total_row)
+
 
 	return data
 

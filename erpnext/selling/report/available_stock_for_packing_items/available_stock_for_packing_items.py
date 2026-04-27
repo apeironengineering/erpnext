@@ -74,7 +74,7 @@ def get_item_warehouse_quantity_map():
 										 where b.parent = pb.name) AS b
 					 WHERE bi.item_code = b.item_code
 						   AND bi.warehouse = b.name
-					 GROUP BY b.parent, b.item_code, bi.warehouse
+					 GROUP BY b.parent, b.item_code, bi.warehouse, bi.item_code, b.qty
 					 UNION ALL
 					 SELECT b.parent, b.item_code, b.name, 0 AS qty
 					 FROM (SELECT pb.new_item_code as parent, b.item_code, b.qty, w.name
